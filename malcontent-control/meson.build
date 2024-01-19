@@ -27,8 +27,9 @@ malcontent_control = executable('malcontent-control',
     dependency('gio-2.0', version: '>= 2.44'),
     dependency('glib-2.0', version: '>= 2.54.2'),
     dependency('gobject-2.0', version: '>= 2.54'),
-    dependency('gtk+-3.0'),
+    gtk_dep,
     dependency('polkit-gobject-1'),
+    libadwaita_dep,
     libmalcontent_dep,
     libmalcontent_ui_dep,
   ],
@@ -36,7 +37,7 @@ malcontent_control = executable('malcontent-control',
   install: true,
 )
 
-desktop_file = i18n.merge_file('desktop-file',
+desktop_file = i18n.merge_file(
   type: 'desktop',
   input: '@0@.desktop.in'.format(application_id),
   output: '@0@.desktop'.format(application_id),
@@ -57,7 +58,7 @@ if desktop_file_validate.found()
   )
 endif
 
-appdata_file = i18n.merge_file('appdata-file',
+appdata_file = i18n.merge_file(
   input: '@0@.appdata.xml.in'.format(application_id),
   output: '@0@.appdata.xml'.format(application_id),
   po_dir: join_paths(meson.current_source_dir(), '..', 'po'),
@@ -78,12 +79,12 @@ endif
 
 xmllint = find_program('xmllint', required: false)
 if xmllint.found()
-  gtk_prefix = dependency('gtk+-3.0').get_pkgconfig_variable('prefix')
+  gtk_prefix = gtk_dep.get_variable(pkgconfig: 'prefix')
   test(
     'validate-ui', xmllint,
     args: [
       '--nonet', '--noblanks', '--noout',
-      '--relaxng', join_paths(gtk_prefix, 'share', 'gtk-3.0', 'gtkbuilder.rng'),
+      '--relaxng', join_paths(gtk_prefix, 'share', 'gtk-4.0', 'gtk4builder.rng'),
       files(
         'carousel.ui',
         'main.ui',
@@ -94,7 +95,7 @@ if xmllint.found()
   )
 endif
 
-policy_file = i18n.merge_file('policy-file',
+policy_file = i18n.merge_file(
   input: '@0@.policy.in'.format(application_id),
   output: '@0@.policy'.format(application_id),
   po_dir: join_paths(meson.current_source_dir(), '..', 'po'),
