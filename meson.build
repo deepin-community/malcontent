@@ -1,6 +1,6 @@
 project('malcontent', 'c',
-  version : '0.10.3',
-  meson_version : '>= 0.50.0',
+  version : '0.11.1',
+  meson_version : '>= 0.59.0',
   license: ['LGPL-2.1-or-later', 'GPL-2.0-or-later'],
   default_options : [
     'buildtype=debugoptimized',
@@ -34,12 +34,12 @@ if pamlibdir == ''
 endif
 
 dbus = dependency('dbus-1')
-dbusinterfacesdir = dbus.get_pkgconfig_variable('interfaces_dir',
-  define_variable: ['datadir', datadir])
+dbusinterfacesdir = dbus.get_variable(pkgconfig: 'interfaces_dir',
+  pkgconfig_define: ['datadir', datadir])
 
 polkit_gobject = dependency('polkit-gobject-1')
-polkitpolicydir = polkit_gobject.get_pkgconfig_variable('policydir',
-  define_variable: ['prefix', prefix])
+polkitpolicydir = polkit_gobject.get_variable(pkgconfig: 'policydir',
+  pkgconfig_define: ['prefix', prefix])
 
 config_h = configuration_data()
 config_h.set_quoted('GETTEXT_PACKAGE', 'malcontent')
@@ -134,13 +134,23 @@ else
                        'Malcontent-' + libmalcontent_api_version + '.typelib']
 endif
 if get_option('ui').enabled()
+  gtk_dep = dependency('gtk4', version: '>= 4.6')
+  libadwaita_dep = dependency(
+    'libadwaita-1',
+    version: '>= 1.1',
+    fallback: ['libadwaita', 'libadwaita_dep'],
+    default_options: ['examples=false', 'introspection=disabled', 'tests=false', 'vapi=false'],
+  )
   subdir('libmalcontent-ui')
 endif
 subdir('malcontent-client')
 if get_option('ui').enabled()
   subdir('malcontent-control')
+
+  gnome.post_install(
+    gtk_update_icon_cache: true,
+    update_desktop_database: true,
+  )
 endif
 subdir('pam')
 subdir('po')
-
-meson.add_install_script('build-aux/meson_post_install.py')
