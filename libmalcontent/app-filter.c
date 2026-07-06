@@ -324,6 +324,62 @@ mct_app_filter_is_flatpak_app_allowed (MctAppFilter *filter,
     }
 }
 
+/* Implement folding of the results of applying the app filter to multiple keys
+ * of a #GAppInfo, including short circuiting. If the app filter is a blocklist,
+ * we want to short circuit return blocked on the first key which is blocked;
+ * otherwise continue to checking the next key. Similarly, if the app filter is
+ * an allowlist, we want to short circuit return *allowed* on the first key
+ * which is allowed; otherwise continue to checking the next key.
+ *
+ * @allowed is the result of an app filter check against a single key.
+ * The return value from this function indicates whether to short circuit, i.e.
+ * whether to return control flow immediately after this function returns. The
+ * result of the fold is returned as @allowed_out.
+ *
+ * The base case for if all keys have been checked and nothing has been allowed
+ * or blocked so far is filter_fold_base(). */
+static gboolean
+filter_fold_should_short_circuit (MctAppFilter *filter,
+                                  gboolean      allowed,
+                                  gboolean     *allowed_out)
+{
+  switch (filter->app_list_type)
+    {
+    case MCT_APP_FILTER_LIST_BLOCKLIST:
+      if (!allowed)
+        {
+          *allowed_out = FALSE;
+          return TRUE;
+        }
+      break;
+    case MCT_APP_FILTER_LIST_ALLOWLIST:
+      if (allowed)
+        {
+          *allowed_out = TRUE;
+          return TRUE;
+        }
+      break;
+    default:
+      g_assert_not_reached ();
+    }
+
+  return FALSE;
+}
+
+static gboolean
+filter_fold_base (MctAppFilter *filter)
+{
+  switch (filter->app_list_type)
+    {
+    case MCT_APP_FILTER_LIST_BLOCKLIST:
+      return TRUE;
+    case MCT_APP_FILTER_LIST_ALLOWLIST:
+      return FALSE;
+    default:
+      g_assert_not_reached ();
+    }
+}
+
 /**
  * mct_app_filter_is_appinfo_allowed:
  * @filter: an #MctAppFilter
@@ -332,6 +388,10 @@ mct_app_filter_is_flatpak_app_allowed (MctAppFilter *filter,
  * Check whether the app with the given @app_info is allowed to be run
  * according to this app filter. This matches on multiple keys potentially
  * present in the #GAppInfo, including the path of the executable.
+ *
+ * If the appfilter is a blocklist, the @app_info is blocked if any of its
+ * keys are blocked. If the appfilter is an allowlist, the @app_info is allowed
+ * if any of its keys are allowed.
  *
  * Returns: %TRUE if the user this @filter corresponds to is allowed to run the
  *    app represented by @app_info according to the @filter policy; %FALSE
@@ -342,24 +402,31 @@ gboolean
 mct_app_filter_is_appinfo_allowed (MctAppFilter *filter,
                                    GAppInfo     *app_info)
 {
+  const char *exec;
   g_autofree gchar *abs_path = NULL;
   const gchar * const *types = NULL;
+  gboolean retval = FALSE;
 
   g_return_val_if_fail (filter != NULL, FALSE);
   g_return_val_if_fail (filter->ref_count >= 1, FALSE);
   g_return_val_if_fail (G_IS_APP_INFO (app_info), FALSE);
 
-  abs_path = g_find_program_in_path (g_app_info_get_executable (app_info));
+  exec = g_app_info_get_executable (app_info);
+  abs_path = (exec != NULL) ? g_find_program_in_path (exec) : NULL;
 
   if (abs_path != NULL &&
-      !mct_app_filter_is_path_allowed (filter, abs_path))
-    return FALSE;
+      filter_fold_should_short_circuit (filter,
+                                   mct_app_filter_is_path_allowed (filter, abs_path),
+                                   &retval))
+    return retval;
 
   types = g_app_info_get_supported_types (app_info);
   for (gsize i = 0; types != NULL && types[i] != NULL; i++)
     {
-      if (!mct_app_filter_is_content_type_allowed (filter, types[i]))
-        return FALSE;
+      if (filter_fold_should_short_circuit (filter,
+                                       mct_app_filter_is_content_type_allowed (filter, types[i]),
+                                       &retval))
+        return retval;
     }
 
   if (G_IS_DESKTOP_APP_INFO (app_info))
@@ -373,8 +440,10 @@ mct_app_filter_is_appinfo_allowed (MctAppFilter *filter,
         flatpak_app = g_strstrip (flatpak_app);
 
       if (flatpak_app != NULL &&
-          !mct_app_filter_is_flatpak_app_allowed (filter, flatpak_app))
-        return FALSE;
+          filter_fold_should_short_circuit (filter,
+                                       mct_app_filter_is_flatpak_app_allowed (filter, flatpak_app),
+                                       &retval))
+        return retval;
 
       /* FIXME: This could do with the g_desktop_app_info_get_string_list() API
        * from GLib 2.60. Gives `gimp.desktop;org.gimp.Gimp.desktop;`. */
@@ -392,13 +461,15 @@ mct_app_filter_is_appinfo_allowed (MctAppFilter *filter,
               old_flatpak_app = g_strstrip (old_flatpak_app);
 
               if (*old_flatpak_app != '\0' &&
-                  !mct_app_filter_is_flatpak_app_allowed (filter, old_flatpak_app))
-                return FALSE;
+                  filter_fold_should_short_circuit (filter,
+                                               mct_app_filter_is_flatpak_app_allowed (filter, old_flatpak_app),
+                                               &retval))
+                return retval;
             }
         }
     }
 
-  return TRUE;
+  return filter_fold_base (filter);
 }
 
 /* Check whether a given @content_type is valid.

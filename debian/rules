@@ -10,7 +10,7 @@ binaries := $(shell dh_listpackages)
 %:
 	dh $@
 
-meson_options := -Dpamlibdir=/lib/$(DEB_HOST_MULTIARCH)/security
+meson_options := -Dpamlibdir=/usr/lib/$(DEB_HOST_MULTIARCH)/security
 
 ifneq ($(filter libmalcontent-ui-%,$(binaries)),)
 meson_options += -Dui=enabled
